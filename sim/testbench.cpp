@@ -28,10 +28,11 @@ public:
     TernaryEncoder() {
         decoder = new Vternary_decoder;
         // Build reverse lookup from all 243 valid encoded values
-        for (int i = 0; i < 243; i++) {
+        for (int i = 0; i < 257; i++) {
             decoder->encoded_vals = i;
             decoder->eval();
-            trit_to_byte[decoder->decoded_vals] = i;
+            auto d = decoder->decoded_vals;
+            trit_to_byte[d] = i;
         }
     }
 
@@ -45,14 +46,36 @@ public:
         return (b == TRIT_NEG) ? -1 : (b == TRIT_POS) ? 1 : 0;
     }
 
-    // Encode 5 trits to 8-bit value
-    int encode(int t0, int t1, int t2, int t3, int t4) {
-        uint16_t packed = (trit_to_bits(t4) << 8) | (trit_to_bits(t3) << 6) |
-                          (trit_to_bits(t2) << 4) | (trit_to_bits(t1) << 2) |
-                          trit_to_bits(t0);
-        auto it = trit_to_byte.find(packed);
-        return (it != trit_to_byte.end()) ? it->second : -1;
+    int64_t encode(int* t, int num_trits) {
+        // Encode takes the number of trits and encodes it into a 64-bit integer.
+        // There are NUM_TILE trits in a tile, so if the number of trits goes past the TRIT_PACK boundary, we need to encode the next tile.
+        const int TRIT_PACK = 5;
+        int num_tiles = (num_trits + TRIT_PACK - 1) / TRIT_PACK;
+        int64_t result = 0;
+        
+        for (int tile = 0; tile < num_tiles; tile++) {
+            int start = tile * TRIT_PACK;
+            int end = std::min(start + TRIT_PACK, num_trits);
+            
+            uint16_t packed = 0;
+            for (int i = start; i < end; ++i) {
+                packed |= trit_to_bits(t[i]) << (2 * (i - start));
+            }
+            
+            auto it = trit_to_byte.find(packed);
+            if (it == trit_to_byte.end()) {
+                printf("Failed to decode tile %d, packed=%x\n", tile, packed);
+                decoder->encoded_vals = packed;
+                decoder->eval();
+                printf("Decoded: %x\n", decoder->decoded_vals);
+                return -1;
+            }
+            
+            result |= ((int64_t)it->second) << (8 * tile);
+        }
+        return result;
     }
+
 };
 
 // Software reference: multiply activation by trit
@@ -63,75 +86,69 @@ int8_t sw_tmul(uint8_t activation, int trit) {
     return 0;
 }
 
-// Function that takes the 10 bit packed decoded weights and returns the 5 trits
-int8_t* decode_weights(uint16_t decoded_weights) {
-    int8_t* trits = new int8_t[5];
-    for (int i = 0; i < 5; i++) {
-        trits[i] = (decoded_weights >> (i * 2)) & 0x3;
-        if(trits[i] == 0b00) trits[i] = 0;
-        else if(trits[i] == 0b01) trits[i] = 1;
-        else if(trits[i] == 0b11) trits[i] = -1;
-        else {
-            printf("ERROR: Invalid decoded weight %d: %d\n", i, trits[i]);
-            return NULL;
-        }
-    }
-    return trits;
-}
-
 int main() {
-    mt19937 gen(42);  // Fixed seed for reproducibility
+    mt19937 gen(time(NULL));  // Fixed seed for reproducibility
     uniform_int_distribution<> trit_dist(-1, 1);
     uniform_int_distribution<> act_dist(0, 255);
 
     TernaryEncoder encoder;
     Vtop* top = new Vtop;
 
-    int num_tests = 10;
+    int num_tests = 100;
     int errors = 0;
+#ifndef TILE_SIZE
+    #define TILE_SIZE 8
+#endif
 
     printf("Running %d tests...\n\n", num_tests);
 
     for (int test = 0; test < num_tests; test++) {
         // Generate random trits and activations
-        int trits[5];
-        uint8_t activations[5];
-        for (int i = 0; i < 5; i++) {
+        int trits[TILE_SIZE];
+        uint8_t activations[TILE_SIZE];
+        for (int i = 0; i < TILE_SIZE; i++) {
             trits[i] = trit_dist(gen);
             activations[i] = act_dist(gen);
         }
+        std::cout << std::endl;
 
-        // Encode trits to 8-bit
-        int encoded = encoder.encode(trits[0], trits[1], trits[2], trits[3], trits[4]);
-        printf("Encoded: %d\n", encoded);
+        // Encode trits to packed bytes (one byte per tile)
+        int64_t encoded = encoder.encode(trits, TILE_SIZE);
+        printf("Encoded: 0x%llx\n", (unsigned long long)encoded);
         if (encoded < 0) {
             printf("ERROR: Failed to encode trits\n");
+            num_tests += 1;
             continue;
         }
 
         // Run hardware
-        top->weights = encoded;
-        for (int i = 0; i < 5; i++) {
+        top->weights_in = encoded;
+        for (int i = 0; i < TILE_SIZE; i++) {
             top->activations[i] = activations[i];
         }
         top->eval();
 
         // Compute expected in software
-        int8_t expected[5];
-        for (int i = 0; i < 5; i++) {
+        int8_t expected[TILE_SIZE];
+        for (int i = 0; i < TILE_SIZE; i++) {
             expected[i] = sw_tmul(activations[i], trits[i]);
         }
 
-        // Compare
+        // // Compare
         bool pass = true;
-        int8_t* decoded_trits = decode_weights(top->decoded_weights);
-        for (int i = 0; i < 5; i++) {
-            printf("Decoded weight %d: %d\n", i, decoded_trits[i]);
+        for (int i = 0; i < TILE_SIZE; i++) {
+            int8_t pr = (int8_t) top->products[i];
+            if (pr != expected[i]) {
+                printf("MISMATCH!: ");
+                pass = false;
+            }
+            printf("Weight %d:, Activation %d: Expected: %d, Got: %d\n", trits[i], (int8_t) activations[i], expected[i], pr);
         }
-        for (int i = 0; i < 5; i++) {
-            printf("Weight %d:, Activation %d: Expected: %d, Got: %d\n", trits[i], (int8_t) activations[i], expected[i], (int8_t)top->products[i]);
+        if(pass == false) {
+            errors += 1;
         }
     }
+    // printf("Ran %d tests\n", num_tests);
 
     printf("\n%d/%d tests passed\n", num_tests - errors, num_tests);
 

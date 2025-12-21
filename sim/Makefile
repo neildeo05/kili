@@ -1,5 +1,8 @@
 .PHONY: test_decoder testbench clean
 
+# Configurable tile size (default 4)
+TILE_SIZE ?= 8
+
 # Test just the decoder
 test_decoder:
 	verilator -I../hdl -Wall -Wno-fatal --trace --cc --exe --build \
@@ -12,14 +15,16 @@ testbench:
 	verilator -I../hdl -Wall -Wno-fatal --cc ../hdl/ternary_decoder.sv \
 		--Mdir obj_decoder
 	$(MAKE) -C obj_decoder -f Vternary_decoder.mk
-	# Build top model
+	# Build top model with TILE_SIZE parameter
 	verilator -I../hdl -Wall -Wno-fatal --cc \
+		-GTILE_SIZE=$(TILE_SIZE) \
 		../hdl/top.sv ../hdl/ternary_decoder.sv ../hdl/tmul.sv \
 		--Mdir obj_top
 	$(MAKE) -C obj_top -f Vtop.mk
-	# Link testbench
+	# Link testbench with TILE_SIZE define
 	g++ -std=c++17 -I obj_decoder -I obj_top \
 		-I$$(verilator --getenv VERILATOR_ROOT)/include \
+		-DTILE_SIZE=$(TILE_SIZE) \
 		testbench.cpp \
 		obj_decoder/Vternary_decoder__ALL.a \
 		obj_top/Vtop__ALL.a \

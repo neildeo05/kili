@@ -35,33 +35,21 @@ module ternary_decoder (
   assign y8 = b0 & b7 & b6;
   assign y0 = (~b1) & (~y9) |  b7  &  z0 ^ y5 ^ b1 & y9 & b7;
   assign x0 = y1 & b2;
-  assign x1 = ( (~b0 | b5) & (~b6) & (~b1) & b2 ) |
-              ( ~b3 ) |
-              ( x0 );
+  assign x1 = (~b0 | b5) & (~b6) & (~b1) & b2 | (~b3) | x0;
 
-  assign x3 = ( ((b0 & z0) | z2) & (~b7) & y9 );
+  assign x3 = ((b0 & z0 | z2) & (~b7) & y9 );
 
-  assign x4 = (y2 & (~b5)) | z1 | y1;
-  assign x5 = (y3 & (~b6) & (~b5)) |
-              (y6 &  b2  &  b6 )  |
-              (y5 &  y9);
+  assign x4 = y2 & (~b5) | z1 | y1;
+  assign x5 = y3 & (~b6) & (~b5) | y6 &  b2  &  b6  | y5 &  y9;
 
-  assign x6 = ( (y8 | (b1 & (~b4))) & b2 ) |
-              ( y8 & (~b4) & b3 )          |
-              ( y7 )                       |
-              ( b0 & z1 )                  |
-              ( y1 );
+  assign x6 = (y8 | b1 & (~b4)) & b2 | y8 & (~b4) & b3 | y7 | b0 & z1 | y1;
 
   assign x7 = ( (~b0) & (~b2) & ((~b1) | b3) ) |
               ( y2 & b5 );
 
   assign x8 = ( ((~b7) | (~y9)) & y1 ) | y7;
 
-  assign x9 = ( y6 & (~b2) ) |
-              ( y4 & (~b3) ) ^
-              ( x2 &  b6  &  b4 ) ^
-              ( y5 ) ^
-              ( y3 & (~b7) & b6 );
+  assign x9 = y6 & (~b2) | y4 & (~b3) ^ x2 &  b6  &  b4 ^ y5 ^ y3 & ~b7 & b6;
 
   assign t[0] = x0 | y0;
   assign t[1] = (b4 & y0) | (b3 & x0);
