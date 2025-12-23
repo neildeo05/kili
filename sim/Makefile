@@ -15,13 +15,14 @@ testbench:
 	verilator -I../hdl -Wall -Wno-fatal --cc ../hdl/ternary_decoder.sv \
 		--Mdir obj_decoder
 	$(MAKE) -C obj_decoder -f Vternary_decoder.mk
-	# Build top model with TILE_SIZE parameter
-	verilator -I../hdl -Wall -Wno-fatal --cc \
+	# Build top model with TILE_SIZE parameter and tracing
+	verilator -I../hdl -Wall -Wno-fatal --trace --cc \
 		-GTILE_SIZE=$(TILE_SIZE) \
 		../hdl/top.sv ../hdl/ternary_decoder.sv ../hdl/tmul.sv \
+		../hdl/reduction_tree.sv ../hdl/reduction_stage.sv ../hdl/adder_stage.sv \
 		--Mdir obj_top
 	$(MAKE) -C obj_top -f Vtop.mk
-	# Link testbench with TILE_SIZE define
+	# Link testbench with TILE_SIZE define and VCD support
 	g++ -std=c++17 -I obj_decoder -I obj_top \
 		-I$$(verilator --getenv VERILATOR_ROOT)/include \
 		-DTILE_SIZE=$(TILE_SIZE) \
@@ -30,6 +31,7 @@ testbench:
 		obj_top/Vtop__ALL.a \
 		$$(verilator --getenv VERILATOR_ROOT)/include/verilated.cpp \
 		$$(verilator --getenv VERILATOR_ROOT)/include/verilated_threads.cpp \
+		$$(verilator --getenv VERILATOR_ROOT)/include/verilated_vcd_c.cpp \
 		-pthread \
 		-o testbench
 	./testbench
