@@ -11,7 +11,7 @@ module reduction_stage #(STAGE_SIZE = 8)(
   logic [STAGE_SIZE/2-1:0] sum_valid_internal;
   assign sum_valid = |sum_valid_internal;
   generate
-    for(genvar i = 0; i < STAGE_SIZE-1; i+=2) begin
+    for(genvar i = 0; i < STAGE_SIZE-1; i+=2) begin : adders
       adder_stage adder_stage_i (
         .clk(clk),
         .rst(rst),

@@ -15,7 +15,7 @@ module reduction_tree #(TILE_SIZE = 8) (
   assign level_valid[0] = product_valid; //{TILE_SIZE{product_valid}};
 
   generate
-    for (genvar s = 0; s < NUM_STAGES; s++) begin
+    for (genvar s = 0; s < NUM_STAGES; s++) begin : reduction_stages
       localparam STAGE_WIDTH = TILE_SIZE >> s; // Width of the stage, since we are halving the size each stage
       localparam OUT_WIDTH = STAGE_WIDTH / 2; // Each stage outputs half the number of values as the previous stage
 

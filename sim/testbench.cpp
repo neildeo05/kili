@@ -127,7 +127,7 @@ int main() {
     top->trace(tfp, 99);  // Trace 99 levels of hierarchy
     tfp->open("waveform.vcd");
 
-    int num_tests = 10;
+    int num_tests = 100;
     int errors = 0;
 
     printf("Running %d tests with TILE_SIZE=%d, pipeline latency=%d cycles\n\n", 
