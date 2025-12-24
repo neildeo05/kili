@@ -2,7 +2,7 @@
 // Words: 64
 // Word size: 16
 
-module weight_array(
+module local_memory(
 `ifdef USE_POWER_PINS
     vdd,
     gnd,

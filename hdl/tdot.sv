@@ -5,8 +5,8 @@ module tdot #(
 ) (
   input logic clk,
   input logic rst,
-  input logic weight_fifo_valid,
-  input logic [NUM_TILES-1:0][7:0] weight_fifo_in,
+  input logic weights_valid,
+  input logic [NUM_TILES-1:0][7:0] weights_in,
   input logic [7:0] activations_in [TILE_SIZE],
   input logic activations_valid,
   // output logic [TILE_SIZE-1:0][1:0] trit_decoded_weights,
@@ -30,7 +30,7 @@ module tdot #(
   generate 
     for(genvar i = 0; i < NUM_TILES; i++) begin : decode_weights
       ternary_decoder td (
-        .encoded_vals(weight_fifo_in[i]),
+        .encoded_vals(weights_in[i]),
         .decoded_vals(all_decoded[i*(TRIT_PACK*2) +: (TRIT_PACK*2)])
       );
     end
@@ -43,9 +43,9 @@ module tdot #(
       trit_decoded_weights_valid <= '0;
       activations <= '0;
     end else begin
-      trit_decoded_weights_valid <= weight_fifo_valid;
+      trit_decoded_weights_valid <= weights_valid;
       activation_buffer_valid <= activations_valid;
-      if(weight_fifo_valid) begin
+      if(weights_valid) begin
         trit_decoded_weights <= all_decoded[(TILE_SIZE*2)-1:0];
       end
       if(activations_valid) begin

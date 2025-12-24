@@ -1,4 +1,4 @@
-.PHONY: test_decoder testbench clean
+.PHONY: test_decoder test_fifo testbench clean
 
 # Configurable tile size (default 4)
 TILE_SIZE ?= 8
@@ -8,6 +8,13 @@ test_decoder:
 	verilator -I../hdl -Wall -Wno-fatal --trace --cc --exe --build \
 		test_decoder.cpp ../hdl/ternary_decoder.sv
 	./obj_dir/Vternary_decoder
+
+# Test the FIFO buffer
+test_fifo:
+	verilator -I../hdl -Wall -Wno-fatal --trace --cc --exe --build \
+		test_fifo.cpp ../hdl/fifo_buffer.sv \
+		--Mdir obj_fifo
+	./obj_fifo/Vfifo_buffer
 
 # Build and run testbench (needs both decoder and top models)
 testbench:
@@ -38,4 +45,4 @@ testbench:
 	./testbench
 
 clean:
-	rm -rf obj_dir obj_decoder obj_top testbench
+	rm -rf obj_dir obj_decoder obj_fifo obj_top testbench
