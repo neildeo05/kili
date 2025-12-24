@@ -1,5 +1,6 @@
 /*
 Pipelines combinational path between producer (memory) and consumer (tensor core)
+ inspired from https://fpgacpu.ca/fpga/Pipeline_FIFO_Buffer.html
 Producer -> FIFO -> Consumer
 
 If there is no data in the output register, and the buffer has data, we preload the output register with the next valid data from the buffer
