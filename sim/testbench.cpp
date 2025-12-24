@@ -141,6 +141,11 @@ int main() {
     for (int i = 0; i < TILE_SIZE; i++) {
         top->activations_in[i] = 0;
     }
+    // SRAM interface: inactive (csb=1 disables, web=1 disables write)
+    top->sram_csb = 1;
+    top->sram_web = 1;
+    top->sram_addr = 0;
+    top->sram_din = 0;
     
     // Hold reset for a few cycles
     for (int i = 0; i < 5; i++) {

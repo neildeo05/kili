@@ -20,6 +20,7 @@ testbench:
 		-GTILE_SIZE=$(TILE_SIZE) \
 		../hdl/top.sv ../hdl/ternary_decoder.sv ../hdl/tmul.sv \
 		../hdl/reduction_tree.sv ../hdl/reduction_stage.sv ../hdl/adder_stage.sv \
+		../hdl/weight_array.v \
 		--Mdir obj_top
 	$(MAKE) -C obj_top -f Vtop.mk
 	# Link testbench with TILE_SIZE define and VCD support
