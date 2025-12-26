@@ -1,0 +1,74 @@
+#include <stdlib.h>
+#include <stdint.h>
+#include <iostream>
+
+#include "verilated.h"
+#include "verilated_vcd_c.h"
+#include "Vtop.h"
+
+using namespace std;
+
+vluint64_t sim_time = 0;
+double sc_time_stamp() { return sim_time; }
+
+void tick(Vtop* dut, VerilatedVcdC* tfp) {
+    dut->clk = 0;
+    dut->eval();
+    if (tfp) tfp->dump(sim_time++);
+    
+    dut->clk = 1;
+    dut->eval();
+    if (tfp) tfp->dump(sim_time++);
+}
+
+void reset(Vtop* dut, VerilatedVcdC* tfp) {
+    dut->rst = 1;
+    dut->in_burst_valid = 0;
+    dut->in_burst_addr = 0;
+    dut->in_burst_len = 0;
+    for (int i = 0; i < 5; i++) tick(dut, tfp);
+    dut->rst = 0;
+    tick(dut, tfp);
+}
+
+int main() {
+    Verilated::traceEverOn(true);
+    
+    Vtop* dut = new Vtop;
+    VerilatedVcdC* tfp = new VerilatedVcdC;
+    dut->trace(tfp, 99);
+    tfp->open("top_waveform.vcd");
+
+    int errors = 0;
+
+    // ========== Test 1: Simple burst read ==========
+    printf("Test 1: Simple burst read (addr=0, len=4)\n");
+    reset(dut, tfp);
+    
+    dut->in_burst_valid = 1;
+    dut->in_burst_addr = 6;
+    dut->in_burst_len = 1;
+    tick(dut, tfp);
+    dut->in_burst_valid = 0;
+    tick(dut, tfp);
+    dut->in_burst_addr = 12;
+    dut->in_burst_len = 10;
+    dut->in_burst_valid = 1;
+    tick(dut, tfp);
+    dut->in_burst_valid = 0;
+    tick(dut, tfp);
+    
+    printf("  Running burst...\n");
+    for (int i = 0; i < 20; i++) {
+        tick(dut, tfp);
+        printf("    Cycle %d: weight_data = 0x%016llx%016llx\n", 
+               i, 
+               (unsigned long long)(dut->weight_data[1]),
+               (unsigned long long)(dut->weight_data[0]));
+    }
+
+    tfp->close();
+    delete tfp;
+    delete dut;
+    return errors;
+}

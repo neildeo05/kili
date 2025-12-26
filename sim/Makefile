@@ -1,4 +1,4 @@
-.PHONY: test_decoder test_fifo testbench clean
+.PHONY: test_decoder test_fifo test_top testbench clean
 
 # Configurable tile size (default 4)
 TILE_SIZE ?= 8
@@ -15,6 +15,15 @@ test_fifo:
 		test_fifo.cpp ../hdl/fifo_buffer.sv \
 		--Mdir obj_fifo
 	./obj_fifo/Vfifo_buffer
+
+# Test the top module (burst FIFO + memory reads)
+test_top:
+	verilator -I../hdl -Wall -Wno-fatal --trace --cc --exe --build \
+		-GTILE_SIZE=$(TILE_SIZE) \
+		test_top.cpp \
+		../hdl/top.sv ../hdl/fifo_buffer.sv ../hdl/local_memory.v \
+		--Mdir obj_top_test
+	./obj_top_test/Vtop
 
 # Build and run testbench (needs both decoder and top models)
 testbench:
