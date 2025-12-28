@@ -7,7 +7,7 @@ module tdot #(
   input logic rst,
   input logic weights_valid,
   input logic [NUM_TILES-1:0][7:0] weights_in,
-  input logic [7:0] activations_in [TILE_SIZE],
+  input logic [TILE_SIZE-1:0][7:0] activations_in,
   input logic activations_valid,
   // output logic [TILE_SIZE-1:0][1:0] trit_decoded_weights,
   output logic [7:0] sum_out,
@@ -49,9 +49,7 @@ module tdot #(
         trit_decoded_weights <= all_decoded[(TILE_SIZE*2)-1:0];
       end
       if(activations_valid) begin
-        for(k = 0; k < TILE_SIZE; k++) begin
-          activations[k] <= activations_in[k];
-        end
+        activations <= activations_in;
       end
     end
   end

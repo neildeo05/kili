@@ -5,7 +5,7 @@ module tmatmul #(
 ) (
   input logic clk,
   input logic rst,
-  input logic [7:0] activations_in [TILE_SIZE], // these activations get broadcasted to all the dot product units
+  input logic [TILE_SIZE-1:0][7:0] activations_in, // these activations get broadcasted to all the dot product units
   input logic activations_valid,
   input logic weight_fifo_valid, // we don't want the units to operate separately, so they share a valid signal
   input logic [TILE_SIZE-1:0][NUM_TILES-1:0][7:0] weight_fifo_in,

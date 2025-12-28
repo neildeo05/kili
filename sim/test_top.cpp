@@ -44,22 +44,29 @@ int main() {
     // ========== Test 1: Simple burst read ==========
     printf("Test 1: Simple burst read (addr=0, len=4)\n");
     reset(dut, tfp);
-    
+    dut->activations_valid = 1;
+    for (int i = 0; i < 16; i++) {
+        dut->activations_in[i] = i * 16;
+    }
+    tick(dut, tfp);
+
+    dut->activations_valid = 0;
     dut->in_burst_valid = 1;
-    dut->in_burst_addr = 6;
-    dut->in_burst_len = 1;
+    dut->in_burst_addr = 0;
+    dut->in_burst_len = 63;
     tick(dut, tfp);
     dut->in_burst_valid = 0;
     tick(dut, tfp);
-    dut->in_burst_addr = 12;
-    dut->in_burst_len = 10;
-    dut->in_burst_valid = 1;
-    tick(dut, tfp);
-    dut->in_burst_valid = 0;
-    tick(dut, tfp);
-    
+    // dut->in_burst_addr = 0;
+    // dut->in_burst_len = 63;
+    // dut->in_burst_valid = 1;
+    // tick(dut, tfp);
+    // dut->in_burst_valid = 0;
+    // tick(dut, tfp);
+
+
     printf("  Running burst...\n");
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < 100; i++) {
         tick(dut, tfp);
         printf("    Cycle %d: weight_data = 0x%016llx%016llx\n", 
                i, 

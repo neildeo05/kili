@@ -1,6 +1,5 @@
-obj_dir
-obj_decoder
-obj_top
+obj_*/
+
 test_decoder
 testbench
 *.vcd
