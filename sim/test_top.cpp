@@ -68,10 +68,6 @@ int main() {
     printf("  Running burst...\n");
     for (int i = 0; i < 100; i++) {
         tick(dut, tfp);
-        printf("    Cycle %d: weight_data = 0x%016llx%016llx\n", 
-               i, 
-               (unsigned long long)(dut->weight_data[1]),
-               (unsigned long long)(dut->weight_data[0]));
     }
 
     tfp->close();

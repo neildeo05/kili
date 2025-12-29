@@ -1,10 +1,10 @@
-// Tensor Core Implementation
+// Tensor Unit Implementation
 
 // 4 cycle latency from burst transfer to entering the weight FIFO
    // to be completely honest, the burst fifo could be overkill. at worst it adds an extra cycle of buffering, but at best it allows for a decopuling of the processing of control and data
 // 2 cycle latency from entering the weight FIFO to the weight being used in the tensor core
 
-module tensor_core #(
+module tensor_unit #(
   parameter NUM_TILES = 8,
   parameter TILE_SIZE = 8
 ) (
@@ -23,9 +23,9 @@ module tensor_core #(
   output logic in_burst_ready,
 
   // Memory Interface
-  output logic local_memory_active, // memory enable
-  output logic [5:0] local_memory_addr, // memory address
-  input logic [127:0] local_memory_data, // memory output data -> assumes 1 cycle latency from address to data, which is prolly fine hopefully
+  output logic local_mem_en, // memory enable
+  output logic [5:0] local_mem_addr, // memory address
+  input logic [127:0] local_mem_data, // memory output data -> assumes 1 cycle latency from address to data, which is prolly fine hopefully
 
   // Dot Product Output
   output logic [TILE_SIZE-1:0][7:0] dot_out,
@@ -59,7 +59,7 @@ module tensor_core #(
 
   assign curr_burst_len = curr_burst_data[5:0];
   assign curr_burst_addr = curr_burst_data[11:6];
-  assign local_memory_addr = curr_burst_addr_reg;
+  assign local_mem_addr = curr_burst_addr_reg;
 
   state_t state, next_state;
   always_ff @(posedge clk) begin : burst_state_machine_ff
@@ -95,7 +95,7 @@ module tensor_core #(
   logic weight_valid, weight_ready;
   logic burst_active;
   assign burst_active = (state == BURSTING);
-  assign local_memory_active = burst_active;
+  assign local_mem_en = burst_active;
   always_ff @(posedge clk) begin : update_curr_burst_address
     if (rst) begin
       curr_burst_addr_reg <= '0;
@@ -154,7 +154,7 @@ module tensor_core #(
     .rst(rst),
     .input_valid(weight_valid),
     .input_ready(weight_ready),
-    .input_data(local_memory_data),
+    .input_data(local_mem_data),
     .output_valid(weight_fifo_valid),
     .output_ready(weight_fifo_ready),
     .output_data(weight_fifo_data)
