@@ -1,5 +1,6 @@
 obj_*/
 
 test_decoder
+test_top_exe
 testbench
 *.vcd

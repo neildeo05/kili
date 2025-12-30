@@ -16,14 +16,34 @@ test_fifo:
 		--Mdir obj_fifo
 	./obj_fifo/Vfifo_buffer
 
-# Test the top module (burst FIFO + memory reads)
+# Test the top module (burst FIFO + memory reads + dot product verification)
 test_top:
-	verilator -I../hdl -Wall -Wno-fatal --trace --cc --exe --build \
+	# Build decoder model first (needed for weight decoding in testbench)
+	verilator -I../hdl -Wall -Wno-fatal --cc ../hdl/ternary_decoder.sv \
+		--Mdir obj_decoder
+	$(MAKE) -C obj_decoder -f Vternary_decoder.mk
+	# Build top model with all dependencies
+	verilator -I../hdl -Wall -Wno-fatal --trace --cc \
 		-GTILE_SIZE=$(TILE_SIZE) \
-		test_top.cpp \
-		../hdl/top.sv ../hdl/fifo_buffer.sv ../hdl/local_memory.v \
+		../hdl/top.sv ../hdl/tensor_unit.sv ../hdl/tmatmul.sv ../hdl/tdot.sv \
+		../hdl/tmul.sv ../hdl/ternary_decoder.sv ../hdl/fifo_buffer.sv \
+		../hdl/reduction_tree.sv ../hdl/reduction_stage.sv ../hdl/adder_stage.sv \
+		../hdl/local_memory.v \
 		--Mdir obj_top_test
-	./obj_top_test/Vtop
+	$(MAKE) -C obj_top_test -f Vtop.mk
+	# Link testbench with decoder and top models
+	g++ -std=c++17 -I obj_decoder -I obj_top_test \
+		-I$$(verilator --getenv VERILATOR_ROOT)/include \
+		-DTILE_SIZE=$(TILE_SIZE) -DNUM_TILES=$(TILE_SIZE) \
+		test_top.cpp \
+		obj_decoder/Vternary_decoder__ALL.a \
+		obj_top_test/Vtop__ALL.a \
+		$$(verilator --getenv VERILATOR_ROOT)/include/verilated.cpp \
+		$$(verilator --getenv VERILATOR_ROOT)/include/verilated_threads.cpp \
+		$$(verilator --getenv VERILATOR_ROOT)/include/verilated_vcd_c.cpp \
+		-pthread \
+		-o test_top_exe
+	./test_top_exe
 
 # Build and run testbench (needs both decoder and top models)
 testbench:
