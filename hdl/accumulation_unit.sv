@@ -23,12 +23,16 @@ module accumulation_unit #(
     end else begin
       if (dot_out_valid & ~tile_size_boundary) begin
         accumulation_valid <= 1'b0;
-        accumulation_reg <= accumulation_reg + dot_out;
+        for(int i = 0; i < TILE_SIZE; i++) begin
+          accumulation_reg[i] <= accumulation_reg[i] + dot_out[i];
+        end
         accumulation_out <= '0;
       end else if (tile_size_boundary) begin
         accumulation_valid <= 1'b1;
         accumulation_reg <= '0;
-        accumulation_out <= accumulation_reg + dot_out;
+        for(int i = 0; i < TILE_SIZE; i++) begin
+          accumulation_out[i] <= accumulation_reg[i] + dot_out[i];
+        end
       end
       else if (~dot_out_valid) begin
         accumulation_valid <= 1'b0;

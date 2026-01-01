@@ -311,35 +311,31 @@ def main():
     for test in range(num_tests):
         # Generate random activation vector (uint8)
         # x = np.random.randint(0, 256, size=M*N, dtype=np.uint8)
-        x = np.ones(N, dtype=np.uint8) + 1
+        x = np.ones(N, dtype=np.uint8) * 5
+
 
         # ============================================================
         # ACTUAL NumPy GEMV: y = W @ x
         # W is (M, N) ternary matrix with values in {-1, 0, +1}
         # x is (N,) uint8 activation vector with values in [0, 255]
-        # y is (M,) int32 output vector
+        # y is (M,) uint8 output vector (masked to 8 bits)
         # ============================================================
         W_int = W.astype(np.int32)
         x_int = x.astype(np.int32)
-        y_numpy = W_int @ x_int
+        y_numpy = (W_int @ x_int) & 0xFF  # Mask to 8 bits (no overflow)
         for i in range(M):
             if i % 8 == 0: print()
             print(f"y[{i}] = {hex(y_numpy[i])}")
 
         # Compute using decoded tiles (simulating RTL flow)
         W_from_tiles = decode_matrix_from_tiles(encoder, W_tiles)
-        y_tiles = W_from_tiles.astype(np.int32) @ x_int
+        y_tiles = (W_from_tiles.astype(np.int32) @ x_int) & 0xFF  # Mask to 8 bits
 
         # Compare results
         if not np.array_equal(y_numpy, y_tiles):
             mismatch_idx = np.where(y_numpy != y_tiles)[0]
             print(f"Test {test}: MISMATCH at rows {mismatch_idx[:5]}...")
             errors += len(mismatch_idx)
-        elif test < 5:
-            pass
-            # for i in range(M):
-            #     print(f"y[{i}] = {hex(y_numpy[i])}")
-            # print(f"Test {test}: y = {y_numpy}")
 
     end = time.perf_counter()
     duration_us = (end - start) * 1e6

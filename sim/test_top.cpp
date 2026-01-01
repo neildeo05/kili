@@ -45,7 +45,7 @@ int main() {
     reset(dut, tfp);
     dut->activations_valid = 1;
     for (int i = 0; i < 16; i++) {
-        dut->activations_in[i] = 0x02020202;
+        dut->activations_in[i] = 0x05050505;
     }
     tick(dut, tfp);
 
