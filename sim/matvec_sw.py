@@ -284,7 +284,7 @@ def main():
 
     second_tiles = []
     for i in range(64):
-      second_tiles.append(tile_from_128bit(i))
+      second_tiles.append(tile_from_128bit(234567890167923456789012938919188878555))
 
     second_tiles = (np.array(second_tiles).reshape(8,8,8,2))
     W_tiles = second_tiles
@@ -310,8 +310,8 @@ def main():
 
     for test in range(num_tests):
         # Generate random activation vector (uint8)
-        # x = np.random.randint(0, 256, size=M*N, dtype=np.uint8)
-        x = np.ones(N, dtype=np.uint8) * 5
+        # x = np.random.randint(0, 256, size=N, dtype=np.uint8)
+        x = np.ones(N, dtype=np.uint8) * 2
 
 
         # ============================================================

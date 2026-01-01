@@ -55,7 +55,7 @@ module local_memory(
   initial web1_reg = 1'b1;
   initial begin
     for(int i = 0; i < RAM_DEPTH; i++) begin
-      mem[i] = 128'(i);
+      mem[i] = 128'(234567890167923456789012938919188878555);
     end
   end
   reg [ADDR_WIDTH-1:0]  addr1_reg;
