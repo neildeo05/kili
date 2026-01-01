@@ -1,4 +1,4 @@
-.PHONY: test_decoder test_fifo test_top testbench clean
+.PHONY: test_decoder test_fifo test_top testbench matvec_sw clean
 
 # Configurable tile size (default 4)
 TILE_SIZE ?= 8
@@ -73,5 +73,10 @@ testbench:
 		-o testbench
 	./testbench
 
+# Pure software 64x64 matrix-vector product (no Verilator needed)
+matvec_sw:
+	g++ -std=c++17 -O2 -o matvec_sw matvec_sw.cpp
+	./matvec_sw
+
 clean:
-	rm -rf obj_dir obj_decoder obj_fifo obj_top testbench
+	rm -rf obj_dir obj_decoder obj_fifo obj_top testbench matvec_sw

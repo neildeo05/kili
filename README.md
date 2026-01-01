@@ -27,15 +27,20 @@ Weight Memory Interface:
 The tensor unit computes a GEMV with inputs of a 8x8 weight tile and a 1x8 activation input
 
 
-Here are the latencies:
+## Latencies:
+
+Cycles before operation starts:
 - Burst Transfer Core Input to Memory Input: 2 cycles
 - Memory Input to Weight FIFO: 1 cycle
 - Weight FIFO input to Weight FIFO output (best case): 2 cycles (note that in-flight data due to the burst request will only appear one cycle after the previous data being processed)
 - Tensor Core Unit: 5 cycles between input and output
 
+Example Latencies (64x64) matrix with (8x8) tiles
+
+
 Total 10 cycles between input and output, which is kinda a lot (but it is hyper pipelined so the clock frequency can be higher)
 
-Interfaces/Handshakes:
+## Interfaces/Handshakes:
 - Input Burst -> Burst FIFO: if Burst FIFO isn't full, it will always accept
 - Memory Request -> Weight FIFO: If weight FIFO isn't full it will always accept
 - Weight FIFO -> Ternary Core: Since the ternary core doesn't stall for anything, it will ALWAYS accept

@@ -27,9 +27,9 @@ module tensor_unit #(
   output logic [5:0] local_mem_addr, // memory address
   input logic [127:0] local_mem_data, // memory output data -> assumes 1 cycle latency from address to data, which is prolly fine hopefully
 
-  // Dot Product Output
-  output logic [TILE_SIZE-1:0][7:0] dot_out,
-  output logic dot_out_valid
+  // Full Matrix Product Output
+  output logic [TILE_SIZE-1:0][7:0] accumulation_out,
+  output logic accumulation_valid
 );
   parameter BURST_WIDTH = 6+6;
 
@@ -224,14 +224,10 @@ module tensor_unit #(
   logic activation_chunk_valid, activation_chunk_valid_reg;
   assign activation_chunk_valid = (activation_state == ACTIVATING);
   logic [$clog2(TILE_SIZE)-1:0] chunk_index, next_chunk_index;
-  logic tile_size_boundary;
   always_comb begin
+    next_chunk_index = '0;
     if (activation_state == EMPTY | activation_state == BUFFERED) next_chunk_index = '0;
     else next_chunk_index = chunk_index + 1'b1;
-    tile_size_boundary = 1'b0;
-    if (next_chunk_index == $clog2(TILE_SIZE)'(TILE_SIZE)) begin
-      tile_size_boundary = 1'b1;
-    end
   end
   always_ff @(posedge clk) begin : update_activation_buffer
     if(rst) begin
@@ -256,6 +252,8 @@ module tensor_unit #(
 
 
 
+  logic [TILE_SIZE-1:0][7:0] dot_out;
+  logic dot_out_valid;
   tmatmul #(.TILE_SIZE(TILE_SIZE)) tmatmul_inst (
     .clk(clk),
     .rst(rst),
@@ -265,6 +263,15 @@ module tensor_unit #(
     .weight_fifo_valid(weight_fifo_valid),
     .dot_out(dot_out),
     .dot_out_valid(dot_out_valid)
+  );
+
+  accumulation_unit #(.TILE_SIZE(TILE_SIZE)) accumulation_unit_inst (
+    .clk(clk),
+    .rst(rst),
+    .dot_out(dot_out),
+    .dot_out_valid(dot_out_valid),
+    .accumulation_out(accumulation_out),
+    .accumulation_valid(accumulation_valid)
   );
 
 
