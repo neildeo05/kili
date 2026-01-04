@@ -3,4 +3,5 @@ obj_*/
 test_decoder
 test_top_exe
 testbench
+test_skid_buffer_exe
 *.vcd

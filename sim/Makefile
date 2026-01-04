@@ -1,4 +1,4 @@
-.PHONY: test_decoder test_fifo test_top testbench matvec_sw clean
+.PHONY: test_decoder test_fifo test_skid_buffer test_top testbench matvec_sw clean
 
 # Configurable tile size (default 4)
 TILE_SIZE ?= 8
@@ -15,6 +15,31 @@ test_fifo:
 		test_fifo.cpp ../hdl/fifo_buffer.sv \
 		--Mdir obj_fifo
 	./obj_fifo/Vfifo_buffer
+
+# Test the skid buffers
+test_skid_buffer:
+	# Build in-channel skid buffer model
+	verilator -I../hdl -Wall -Wno-fatal --trace --cc \
+		../hdl/in_chan_skid_buffer.sv \
+		--Mdir obj_in_skid
+	$(MAKE) -C obj_in_skid -f Vin_chan_skid_buffer.mk
+	# Build out-channel skid buffer model
+	verilator -I../hdl -Wall -Wno-fatal --trace --cc \
+		../hdl/out_chan_skid_buffer.sv \
+		--Mdir obj_out_skid
+	$(MAKE) -C obj_out_skid -f Vout_chan_skid_buffer.mk
+	# Link testbench with both skid buffer models
+	g++ -std=c++17 -I obj_in_skid -I obj_out_skid \
+		-I$$(verilator --getenv VERILATOR_ROOT)/include \
+		test_skid_buffer.cpp \
+		obj_in_skid/Vin_chan_skid_buffer__ALL.a \
+		obj_out_skid/Vout_chan_skid_buffer__ALL.a \
+		$$(verilator --getenv VERILATOR_ROOT)/include/verilated.cpp \
+		$$(verilator --getenv VERILATOR_ROOT)/include/verilated_threads.cpp \
+		$$(verilator --getenv VERILATOR_ROOT)/include/verilated_vcd_c.cpp \
+		-pthread \
+		-o test_skid_buffer_exe
+	./test_skid_buffer_exe
 
 # Test the top module (burst FIFO + memory reads + dot product verification)
 test_top:
@@ -79,4 +104,5 @@ matvec_sw:
 	./matvec_sw
 
 clean:
-	rm -rf obj_dir obj_decoder obj_fifo obj_top testbench matvec_sw
+	rm -rf obj_dir obj_decoder obj_fifo obj_in_skid obj_out_skid obj_top obj_top_test \
+		testbench matvec_sw test_skid_buffer_exe test_top_exe
