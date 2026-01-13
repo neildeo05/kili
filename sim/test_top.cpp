@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <iostream>
+#include <iomanip>
+#include <string>
 
 #include "verilated.h"
 #include "verilated_vcd_c.h"
@@ -10,6 +12,9 @@ using namespace std;
 
 vluint64_t sim_time = 0;
 double sc_time_stamp() { return sim_time; }
+
+int test_num = 0;
+int total_errors = 0;
 
 void tick(Vtop* dut, VerilatedVcdC* tfp) {
     dut->clk = 0;
@@ -23,12 +28,257 @@ void tick(Vtop* dut, VerilatedVcdC* tfp) {
 
 void reset(Vtop* dut, VerilatedVcdC* tfp) {
     dut->rst = 1;
-    dut->in_burst_valid = 0;
-    dut->in_burst_addr = 0;
-    dut->in_burst_len = 0;
+    dut->activation_byte_valid = 0;
+    dut->activation_byte = 0;
+    dut->weight_byte_valid = 0;
+    dut->weight_byte = 0;
+    dut->result_byte_valid = 0;
     for (int i = 0; i < 5; i++) tick(dut, tfp);
     dut->rst = 0;
     tick(dut, tfp);
+}
+
+bool check(bool condition, const string& msg) {
+    if (!condition) {
+        cout << "  [FAIL] " << msg << endl;
+        total_errors++;
+        return false;
+    }
+    cout << "  [PASS] " << msg << endl;
+    return true;
+}
+
+// Helper to build expected buffer value from an array of 4 bytes
+uint32_t build_expected_buffer(uint8_t bytes[4]) {
+    uint32_t expected = 0;
+    for (int i = 0; i < 4; i++) {
+        expected |= ((uint32_t)bytes[i]) << (i * 8);
+    }
+    return expected;
+}
+
+// Helper to check buffer contents
+bool check_buffer(Vtop* dut, uint8_t expected_bytes[4], const string& context) {
+    uint32_t expected = build_expected_buffer(expected_bytes);
+    uint32_t actual = dut->activation_buffer;
+    if (actual != expected) {
+        cout << "  [FAIL] Buffer mismatch " << context << endl;
+        cout << "         Expected: 0x" << hex << setfill('0') << setw(8) << expected << endl;
+        cout << "         Actual:   0x" << hex << setfill('0') << setw(8) << actual << dec << endl;
+        total_errors++;
+        return false;
+    }
+    cout << "  [PASS] Buffer contents correct " << context << endl;
+    return true;
+}
+
+// Helper to fill buffer with bytes and return expected pattern
+void fill_buffer(Vtop* dut, VerilatedVcdC* tfp, uint8_t bytes[4]) {
+    for (int i = 0; i < 4; i++) {
+        dut->activation_byte_valid = 1;
+        dut->activation_byte = bytes[i];
+        tick(dut, tfp);
+    }
+    dut->activation_byte_valid = 0;
+    tick(dut, tfp);
+}
+
+void start_test(const string& name) {
+    test_num++;
+    cout << "\n========== Test " << test_num << ": " << name << " ==========" << endl;
+}
+
+// ============================================================================
+// TEST 1: Initial state after reset
+// ============================================================================
+void test_initial_state(Vtop* dut, VerilatedVcdC* tfp) {
+    start_test("Initial state after reset");
+    reset(dut, tfp);
+    
+    check(dut->activation_ready == 1, "activation_ready should be HIGH after reset");
+    check(dut->result_byte_valid == 0, "result_byte_valid should be LOW after reset");
+    check(dut->activation_buffer == 0, "activation_buffer should be zero after reset");
+}
+
+// ============================================================================
+// TEST 2: Basic 4-byte fill and verify buffer contents
+// ============================================================================
+void test_basic_fill(Vtop* dut, VerilatedVcdC* tfp) {
+    start_test("Basic 4-byte fill");
+    reset(dut, tfp);
+    
+    uint8_t bytes[4] = {0x00, 0x01, 0x02, 0x03};
+    
+    // Fill with bytes 0x00 through 0x03
+    for (int i = 0; i < 4; i++) {
+        check(dut->activation_ready == 1, "activation_ready should be HIGH during fill (byte " + to_string(i) + ")");
+        dut->activation_byte_valid = 1;
+        dut->activation_byte = bytes[i];
+        tick(dut, tfp);
+    }
+    
+    dut->activation_byte_valid = 0;
+    tick(dut, tfp);
+    
+    // After 4 bytes, should be in DONE state
+    check(dut->activation_ready == 0, "activation_ready should be LOW after buffer full");
+    check_buffer(dut, bytes, "(sequential 0x00-0x03)");
+}
+
+// ============================================================================
+// TEST 3: Valid signal gating - bytes only accepted when valid is HIGH
+// ============================================================================
+void test_valid_gating(Vtop* dut, VerilatedVcdC* tfp) {
+    start_test("Valid signal gating");
+    reset(dut, tfp);
+    
+    // Send garbage with valid LOW - should be ignored
+    for (int i = 0; i < 5; i++) {
+        dut->activation_byte_valid = 0;
+        dut->activation_byte = 0xFF;  // Garbage
+        tick(dut, tfp);
+    }
+    
+    // Should still be in EMPTY state (ready HIGH)
+    check(dut->activation_ready == 1, "activation_ready should still be HIGH (no valid bytes sent)");
+    check(dut->activation_buffer == 0, "buffer should still be zero (garbage ignored)");
+    
+    // Now send 1 valid byte
+    dut->activation_byte_valid = 1;
+    dut->activation_byte = 0xAA;
+    tick(dut, tfp);
+    
+    // Should now be in FILLING state
+    check(dut->activation_ready == 1, "activation_ready should be HIGH during FILLING");
+    
+    // Check that first byte is written
+    check((dut->activation_buffer & 0xFF) == 0xAA, "first byte should be 0xAA");
+    
+    // Send more garbage with valid LOW
+    dut->activation_byte_valid = 0;
+    dut->activation_byte = 0xFF;
+    for (int i = 0; i < 5; i++) tick(dut, tfp);
+    
+    // Should still be in FILLING state (only 1 byte received)
+    check(dut->activation_ready == 1, "activation_ready should remain HIGH (only 1 valid byte received)");
+    check((dut->activation_buffer & 0xFF) == 0xAA, "first byte should still be 0xAA (garbage ignored)");
+}
+
+// ============================================================================
+// TEST 4: Intermittent valid signal - gaps between valid bytes
+// ============================================================================
+void test_intermittent_valid(Vtop* dut, VerilatedVcdC* tfp) {
+    start_test("Intermittent valid signal");
+    reset(dut, tfp);
+    
+    uint8_t bytes[4];
+    
+    // Send 4 bytes with gaps
+    for (int i = 0; i < 4; i++) {
+        bytes[i] = (uint8_t)(0x10 + i);
+        
+        // Valid byte
+        dut->activation_byte_valid = 1;
+        dut->activation_byte = bytes[i];
+        tick(dut, tfp);
+        
+        // Gap (2 cycles of invalid)
+        dut->activation_byte_valid = 0;
+        dut->activation_byte = 0xFF;  // Garbage
+        tick(dut, tfp);
+        tick(dut, tfp);
+    }
+    
+    check(dut->activation_ready == 0, "activation_ready should be LOW after 4 valid bytes (with gaps)");
+    check_buffer(dut, bytes, "(0x10-0x13 with gaps)");
+}
+
+void test_back_to_back_operations(Vtop* dut, VerilatedVcdC* tfp) {
+    start_test("Back-to-back operations");
+    reset(dut, tfp);
+    
+    for (int round = 0; round < 3; round++) {
+        cout << "  Round " << (round + 1) << ":" << endl;
+        
+        uint8_t bytes[4];
+        for (int i = 0; i < 4; i++) {
+            bytes[i] = (uint8_t)(round * 0x10 + i);
+        }
+        
+        // Fill buffer
+        fill_buffer(dut, tfp, bytes);
+        
+        check(dut->activation_ready == 0, "  activation_ready should be LOW in DONE state");
+        check_buffer(dut, bytes, "(round " + to_string(round + 1) + ")");
+        
+        // Trigger transition back to EMPTY
+        dut->result_byte_valid = 1;
+        tick(dut, tfp);
+        dut->result_byte_valid = 0;
+        tick(dut, tfp);
+        
+        check(dut->activation_ready == 1, "  activation_ready should be HIGH after transition");
+    }
+}
+
+void test_ignore_bytes_when_done(Vtop* dut, VerilatedVcdC* tfp) {
+    start_test("Ignore bytes when buffer is full (DONE state)");
+    reset(dut, tfp);
+    
+    // Fill buffer
+    uint8_t bytes[4] = {0x00, 0x01, 0x02, 0x03};
+    fill_buffer(dut, tfp, bytes);
+    
+    check(dut->activation_ready == 0, "activation_ready should be LOW in DONE state");
+    uint32_t buffer_before = dut->activation_buffer;
+    
+    // Try to send more bytes - should be ignored (ready is LOW)
+    for (int i = 0; i < 5; i++) {
+        dut->activation_byte_valid = 1;
+        dut->activation_byte = 0xFF;
+        tick(dut, tfp);
+        
+        check(dut->activation_ready == 0, "activation_ready should remain LOW (byte " + to_string(i) + ")");
+    }
+    
+    // Verify buffer wasn't modified
+    check(dut->activation_buffer == buffer_before, "buffer should be unchanged after ignored bytes");
+    check_buffer(dut, bytes, "(unchanged)");
+}
+
+void test_boundary_fourth_byte(Vtop* dut, VerilatedVcdC* tfp) {
+    start_test("Boundary condition - 3 bytes then 4th byte");
+    reset(dut, tfp);
+    
+    uint8_t bytes[4] = {0xA0, 0xA1, 0xA2, 0xA3};
+    
+    // Send 3 bytes
+    for (int i = 0; i < 3; i++) {
+        dut->activation_byte_valid = 1;
+        dut->activation_byte = bytes[i];
+        tick(dut, tfp);
+    }
+    
+    dut->activation_byte_valid = 0;
+    tick(dut, tfp);
+    
+    check(dut->activation_ready == 1, "activation_ready should still be HIGH after 3 bytes");
+    
+    // Wait some cycles
+    for (int i = 0; i < 5; i++) tick(dut, tfp);
+    
+    check(dut->activation_ready == 1, "activation_ready should still be HIGH (waiting)");
+    
+    // Send the 4th byte
+    dut->activation_byte_valid = 1;
+    dut->activation_byte = bytes[3];
+    tick(dut, tfp);
+    
+    dut->activation_byte_valid = 0;
+    tick(dut, tfp);
+    
+    check(dut->activation_ready == 0, "activation_ready should be LOW after 4th byte");
+    check_buffer(dut, bytes, "(after delayed 4th byte)");
 }
 
 int main() {
@@ -39,313 +289,32 @@ int main() {
     dut->trace(tfp, 99);
     tfp->open("top_waveform.vcd");
 
-    int errors = 0;
+    cout << "====================================================" << endl;
+    cout << "      Activation Buffer Test Suite                  " << endl;
+    cout << "====================================================" << endl;
 
-    // ========== Test 1: Simple burst read ==========
-    reset(dut, tfp);
-    dut->activations_valid = 1;
-    for (int i = 0; i < 16; i++) {
-        dut->activations_in[i] = 0x02020202;
+    // Run all tests
+    test_initial_state(dut, tfp);
+    test_basic_fill(dut, tfp);
+    test_valid_gating(dut, tfp);
+    test_intermittent_valid(dut, tfp);
+    test_back_to_back_operations(dut, tfp);
+    test_ignore_bytes_when_done(dut, tfp);
+    test_boundary_fourth_byte(dut, tfp);
+
+    cout << "\n====================================================" << endl;
+    cout << "                    SUMMARY                         " << endl;
+    cout << "====================================================" << endl;
+    cout << "Total tests: " << test_num << endl;
+    if (total_errors == 0) {
+        cout << "\033[32mAll tests PASSED!\033[0m" << endl;
+    } else {
+        cout << "\033[31mFailed assertions: " << total_errors << "\033[0m" << endl;
     }
-    tick(dut, tfp);
-
-    dut->activations_valid = 0;
-    dut->in_burst_valid = 1;
-    dut->in_burst_addr = 0;
-    dut->in_burst_len = 63;
-    tick(dut, tfp);
-    dut->in_burst_valid = 0;
-    tick(dut, tfp);
-    // dut->in_burst_addr = 0;
-    // dut->in_burst_len = 63;
-    // dut->in_burst_valid = 1;
-    // tick(dut, tfp);
-    // dut->in_burst_valid = 0;
-    // tick(dut, tfp);
-
-
-    printf("  Running burst...\n");
-    for (int i = 0; i < 100; i++) {
-        tick(dut, tfp);
-    }
+    cout << "====================================================" << endl;
 
     tfp->close();
     delete tfp;
     delete dut;
-    return errors;
+    return total_errors;
 }
-// #include <stdlib.h>
-// #include <stdint.h>
-// #include <iostream>
-// #include <random>
-// #include <unordered_map>
-
-// #include "verilated.h"
-// #include "verilated_vcd_c.h"
-// #include "Vtop.h"
-// #include "Vternary_decoder.h"
-
-// using namespace std;
-
-// #ifndef TILE_SIZE
-//     #define TILE_SIZE 8
-// #endif
-
-// #ifndef NUM_TILES
-//     #define NUM_TILES 8
-// #endif
-
-// // Trit packing: 5 trits per byte
-// constexpr int TRIT_PACK = 5;
-// // Number of bytes needed to encode TILE_SIZE trits
-// constexpr int ENCODED_BYTES = (TILE_SIZE + TRIT_PACK - 1) / TRIT_PACK;
-
-// // Global simulation time for VCD
-// vluint64_t sim_time = 0;
-// double sc_time_stamp() { return sim_time; }
-
-// // Trit encoding: -1 → 0b11, 0 → 0b00, +1 → 0b01
-// constexpr uint8_t TRIT_NEG  = 0b11;
-// constexpr uint8_t TRIT_ZERO = 0b00;
-// constexpr uint8_t TRIT_POS  = 0b01;
-
-// // Decoder class to convert encoded bytes back to trits
-// class TernaryDecoder {
-// private:
-//     Vternary_decoder* decoder;
-
-// public:
-//     TernaryDecoder() {
-//         decoder = new Vternary_decoder;
-//     }
-
-//     ~TernaryDecoder() { delete decoder; }
-
-//     static int bits_to_trit(uint8_t b) {
-//         return (b == TRIT_NEG) ? -1 : (b == TRIT_POS) ? 1 : 0;
-//     }
-
-//     // Decode a single byte to up to 5 trits
-//     void decode_byte(uint8_t encoded, int* trits, int num_trits) {
-//         decoder->encoded_vals = encoded;
-//         decoder->eval();
-//         uint16_t decoded = decoder->decoded_vals;
-        
-//         for (int i = 0; i < num_trits && i < TRIT_PACK; i++) {
-//             uint8_t trit_bits = (decoded >> (2 * i)) & 0x3;
-//             trits[i] = bits_to_trit(trit_bits);
-//         }
-//     }
-
-//     // Decode multiple bytes to TILE_SIZE trits
-//     void decode(uint8_t* encoded_bytes, int* trits) {
-//         int trit_idx = 0;
-//         for (int byte_idx = 0; byte_idx < ENCODED_BYTES && trit_idx < TILE_SIZE; byte_idx++) {
-//             int remaining = TILE_SIZE - trit_idx;
-//             int to_decode = (remaining < TRIT_PACK) ? remaining : TRIT_PACK;
-//             decode_byte(encoded_bytes[byte_idx], &trits[trit_idx], to_decode);
-//             trit_idx += to_decode;
-//         }
-//     }
-// };
-
-// // Software reference: multiply activation by trit
-// int sw_tmul(int8_t activation, int trit) {
-//     if (trit == 1)  return activation;
-//     if (trit == -1) return -activation;
-//     return 0;
-// }
-
-// // Compute expected dot product in software
-// int sw_dot_product(int* trits, int8_t* activations) {
-//     int sum = 0;
-//     for (int i = 0; i < TILE_SIZE; i++) {
-//         sum += sw_tmul(activations[i], trits[i]);
-//     }
-//     return sum;
-// }
-
-// // Clock the design with VCD tracing
-// void tick(Vtop* dut, VerilatedVcdC* tfp) {
-//     dut->clk = 0;
-//     dut->eval();
-//     if (tfp) tfp->dump(sim_time++);
-    
-//     dut->clk = 1;
-//     dut->eval();
-//     if (tfp) tfp->dump(sim_time++);
-// }
-
-// // Pack activations into the 512-bit wide input
-// // Layout: activations_in[NUM_TILES-1:0][TILE_SIZE-1:0][7:0]
-// // This is 8 tiles × 8 elements × 8 bits = 512 bits = 16 × 32-bit words
-// void pack_activations(Vtop* dut, int8_t activations[NUM_TILES][TILE_SIZE]) {
-//     // Clear all words first
-//     for (int i = 0; i < 16; i++) {
-//         dut->activations_in[i] = 0;
-//     }
-    
-//     // Pack: bit position = tile * TILE_SIZE * 8 + elem * 8
-//     // Each 32-bit word holds 4 bytes
-//     for (int tile = 0; tile < NUM_TILES; tile++) {
-//         for (int elem = 0; elem < TILE_SIZE; elem++) {
-//             int bit_pos = tile * TILE_SIZE * 8 + elem * 8;
-//             int word_idx = bit_pos / 32;
-//             int bit_offset = bit_pos % 32;
-//             dut->activations_in[word_idx] |= ((uint32_t)(uint8_t)activations[tile][elem]) << bit_offset;
-//         }
-//     }
-// }
-
-// // Unpack dot_out from 64-bit value to 8 × 8-bit signed results
-// void unpack_dot_out(uint64_t dot_out, int8_t* results) {
-//     for (int i = 0; i < TILE_SIZE; i++) {
-//         results[i] = (int8_t)((dot_out >> (i * 8)) & 0xFF);
-//     }
-// }
-
-// // Extract weight bytes for a specific dot unit from a 128-bit memory word
-// // Memory layout: weight_fifo_in[TILE_SIZE-1:0][ENCODED_BYTES-1:0][7:0]
-// // Total: 8 dot units × 2 bytes = 16 bytes = 128 bits
-// void extract_weights_for_dot_unit(uint64_t mem_lo, uint64_t mem_hi, int dot_unit, uint8_t* weights) {
-//     __uint128_t mem_word = ((__uint128_t)mem_hi << 64) | mem_lo;
-//     int bit_offset = dot_unit * ENCODED_BYTES * 8;
-    
-//     for (int i = 0; i < ENCODED_BYTES; i++) {
-//         weights[i] = (mem_word >> (bit_offset + i * 8)) & 0xFF;
-//     }
-// }
-
-// void reset(Vtop* dut, VerilatedVcdC* tfp) {
-//     dut->rst = 1;
-//     dut->activations_valid = 0;
-//     dut->in_burst_valid = 0;
-//     dut->in_burst_addr = 0;
-//     dut->in_burst_len = 0;
-    
-//     // Clear activations
-//     for (int i = 0; i < 16; i++) {
-//         dut->activations_in[i] = 0;
-//     }
-    
-//     for (int i = 0; i < 5; i++) tick(dut, tfp);
-//     dut->rst = 0;
-//     tick(dut, tfp);
-// }
-
-// int main() {
-//     mt19937 gen(42);  // Fixed seed for reproducibility
-//     uniform_int_distribution<> act_dist(-128, 127);
-    
-//     Verilated::traceEverOn(true);
-    
-//     TernaryDecoder decoder;
-//     Vtop* dut = new Vtop;
-//     VerilatedVcdC* tfp = new VerilatedVcdC;
-//     dut->trace(tfp, 99);
-//     tfp->open("top_waveform.vcd");
-
-//     int errors = 0;
-//     int num_tests = 10;
-
-//     printf("Testing dot product outputs (pre-accumulation)\n");
-//     printf("TILE_SIZE=%d, NUM_TILES=%d, ENCODED_BYTES=%d\n\n", TILE_SIZE, NUM_TILES, ENCODED_BYTES);
-
-//     for (int test = 0; test < num_tests; test++) {
-//         printf("=== Test %d ===\n", test);
-//         reset(dut, tfp);
-
-//         // Generate random activations (8x8 matrix, signed 8-bit)
-//         int8_t activations[NUM_TILES][TILE_SIZE];
-//         for (int tile = 0; tile < NUM_TILES; tile++) {
-//             for (int elem = 0; elem < TILE_SIZE; elem++) {
-//                 activations[tile][elem] = act_dist(gen);
-//             }
-//         }
-//         // Pack and load activations
-//         pack_activations(dut, activations);
-//         dut->activations_valid = 1;
-//         tick(dut, tfp);
-//         dut->activations_valid = 0;
-//         tick(dut, tfp);
-
-//         // Use a single memory row for this test (row = test % 64)
-//         int mem_row = test % 64;
-        
-//         // Initiate burst read (single row)
-//         dut->in_burst_addr = mem_row;
-//         dut->in_burst_len = 0;  // len=0 means 1 word
-//         dut->in_burst_valid = 1;
-//         tick(dut, tfp);
-//         dut->in_burst_valid = 0;
-
-//         // Memory is initialized with mem[i] = 128'(i)
-//         // So mem[row] = row as a 128-bit value
-//         uint64_t mem_lo = mem_row;
-//         uint64_t mem_hi = 0;
-
-//         // Compute expected dot products
-//         // The activations used are from chunk 0 (first tile of activations)
-//         // Based on tensor_unit.sv, chunk_index starts at 0 and increments
-//         int expected_dots[TILE_SIZE];
-//         for (int dot_unit = 0; dot_unit < TILE_SIZE; dot_unit++) {
-//             uint8_t weight_bytes[ENCODED_BYTES];
-//             extract_weights_for_dot_unit(mem_lo, mem_hi, dot_unit, weight_bytes);
-            
-//             int trits[TILE_SIZE];
-//             decoder.decode(weight_bytes, trits);
-            
-//             expected_dots[dot_unit] = sw_dot_product(trits, activations[0]);
-//         }
-
-
-//         // Wait for dot_out_valid
-//         int cycles = 0;
-//         int max_cycles = 50;
-//         while (!dut->dot_out_valid && cycles < max_cycles) {
-//             tick(dut, tfp);
-//             cycles++;
-//         }
-
-//         if (!dut->dot_out_valid) {
-//             printf("  ERROR: dot_out_valid never asserted after %d cycles\n", cycles);
-//             errors++;
-//             continue;
-//         }
-
-//         printf("  dot_out_valid after %d cycles\n", cycles);
-
-//         // Unpack and check results
-//         int8_t hw_results[TILE_SIZE];
-//         unpack_dot_out(dut->dot_out, hw_results);
-
-//         int test_errors = 0;
-//         for (int i = 0; i < TILE_SIZE; i++) {
-//             int8_t expected = (int8_t)expected_dots[i];
-            
-//             if (hw_results[i] != expected) {
-//                 printf("  MISMATCH dot_out[%d]: expected=%d, got=%d\n", i, expected, hw_results[i]);
-//                 test_errors++;
-//             }
-//         }
-
-//         if (test_errors == 0) {
-//             printf("  PASS: all %d dot products match\n", TILE_SIZE);
-//         } else {
-//             printf("  FAIL: %d/%d mismatches\n", test_errors, TILE_SIZE);
-//             errors++;
-//         }
-
-//         // Let pipeline drain
-//         for (int i = 0; i < 10; i++) {
-//             tick(dut, tfp);
-//         }
-//     }
-
-//     printf("\n%d/%d tests passed\n", num_tests - errors, num_tests);
-
-//     tfp->close();
-//     delete tfp;
-//     delete dut;
-//     return errors;
-// }

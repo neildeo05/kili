@@ -1,4 +1,4 @@
-module reduction_tree #(TILE_SIZE = 8) (
+module reduction_tree #(TILE_SIZE = 4) (
   input logic clk,
   input logic rst,
   input logic [TILE_SIZE-1:0][7:0] products,

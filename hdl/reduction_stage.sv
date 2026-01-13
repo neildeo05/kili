@@ -1,4 +1,4 @@
-module reduction_stage #(STAGE_SIZE = 8)(
+module reduction_stage #(STAGE_SIZE = 4)(
   input logic clk,
   input logic rst,
   input logic [STAGE_SIZE-1:0][7:0] sum_in,

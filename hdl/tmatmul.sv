@@ -1,5 +1,5 @@
 module tmatmul #(
-  parameter TILE_SIZE = 8,
+  parameter TILE_SIZE = 4,
   parameter TRIT_PACK = 5,
   parameter NUM_TILES = (TILE_SIZE + TRIT_PACK-1)/TRIT_PACK
 ) (
@@ -14,6 +14,8 @@ module tmatmul #(
 );
 
   // FIFO between local memory and tensor core
+  logic [TILE_SIZE-1:0][0:0] dot_valid;
+  assign dot_out_valid = &dot_valid;
 
   generate
     for(genvar i = 0; i < TILE_SIZE; i++) begin : dot_units
@@ -25,7 +27,7 @@ module tmatmul #(
         .activations_in(activations_in),
         .activations_valid(activations_valid),
         .sum_out(dot_out[i]),
-        .sum_out_valid(dot_out_valid)
+        .sum_out_valid(dot_valid[i])
       );
     end
   endgenerate

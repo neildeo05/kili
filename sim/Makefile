@@ -1,7 +1,7 @@
-.PHONY: test_decoder test_fifo test_skid_buffer test_top testbench matvec_sw clean
+.PHONY: test_decoder test_fifo test_skid_buffer test_top test_top_system testbench matvec_sw clean
 
 # Configurable tile size (default 4)
-TILE_SIZE ?= 8
+TILE_SIZE ?= 4
 
 # Test just the decoder
 test_decoder:
@@ -41,28 +41,18 @@ test_skid_buffer:
 		-o test_skid_buffer_exe
 	./test_skid_buffer_exe
 
-# Test the top module (burst FIFO + memory reads + dot product verification)
+# Test the top module (legacy test for parallel_byte_buffer)
 test_top:
-	# Build decoder model first (needed for weight decoding in testbench)
-	verilator -I../hdl -Wall -Wno-fatal --cc ../hdl/ternary_decoder.sv \
-		--Mdir obj_decoder
-	$(MAKE) -C obj_decoder -f Vternary_decoder.mk
-	# Build top model with all dependencies
 	verilator -I../hdl -Wall -Wno-fatal --trace --cc \
-		-GTILE_SIZE=$(TILE_SIZE) \
-		../hdl/top.sv ../hdl/tensor_unit.sv ../hdl/tmatmul.sv ../hdl/tdot.sv \
-		../hdl/tmul.sv ../hdl/ternary_decoder.sv ../hdl/fifo_buffer.sv \
-		../hdl/reduction_tree.sv ../hdl/reduction_stage.sv ../hdl/adder_stage.sv \
-		../hdl/local_memory.v \
-		--Mdir obj_top_test
-	$(MAKE) -C obj_top_test -f Vtop.mk
-	# Link testbench with decoder and top models
-	g++ -std=c++17 -I obj_decoder -I obj_top_test \
+		../hdl/top.sv \
+		../hdl/parallel_byte_buffer.sv \
+		../hdl/bus_arbiter.sv \
+		--Mdir obj_top
+	$(MAKE) -C obj_top -f Vtop.mk
+	g++ -std=c++17 -I obj_top \
 		-I$$(verilator --getenv VERILATOR_ROOT)/include \
-		-DTILE_SIZE=$(TILE_SIZE) -DNUM_TILES=$(TILE_SIZE) \
 		test_top.cpp \
-		obj_decoder/Vternary_decoder__ALL.a \
-		obj_top_test/Vtop__ALL.a \
+		obj_top/Vtop__ALL.a \
 		$$(verilator --getenv VERILATOR_ROOT)/include/verilated.cpp \
 		$$(verilator --getenv VERILATOR_ROOT)/include/verilated_threads.cpp \
 		$$(verilator --getenv VERILATOR_ROOT)/include/verilated_vcd_c.cpp \
@@ -70,27 +60,52 @@ test_top:
 		-o test_top_exe
 	./test_top_exe
 
-# Build and run testbench (needs both decoder and top models)
+# Test the top module system (full ternary matmul with bus arbiter + buffers)
+test_top_system:
+	verilator -I../hdl -Wall -Wno-fatal --trace --cc \
+		../hdl/top.sv \
+		../hdl/parallel_byte_buffer.sv \
+		../hdl/bus_arbiter.sv \
+		../hdl/tmatmul.sv \
+		../hdl/tdot.sv \
+		../hdl/tmul.sv \
+		../hdl/reduction_tree.sv \
+		../hdl/reduction_stage.sv \
+		../hdl/adder_stage.sv \
+		--Mdir obj_top_system
+	$(MAKE) -C obj_top_system -f Vtop.mk
+	g++ -std=c++17 -I obj_top_system \
+		-I$$(verilator --getenv VERILATOR_ROOT)/include \
+		test_top_system.cpp \
+		obj_top_system/Vtop__ALL.a \
+		$$(verilator --getenv VERILATOR_ROOT)/include/verilated.cpp \
+		$$(verilator --getenv VERILATOR_ROOT)/include/verilated_threads.cpp \
+		$$(verilator --getenv VERILATOR_ROOT)/include/verilated_vcd_c.cpp \
+		-pthread \
+		-o test_top_system_exe
+	./test_top_system_exe
+
+# Build and run testbench (tests tmatmul matrix-vector multiplication)
 testbench:
-	# Build decoder model
+	# Build decoder model (needed for weight encoding in testbench)
 	verilator -I../hdl -Wall -Wno-fatal --cc ../hdl/ternary_decoder.sv \
 		--Mdir obj_decoder
 	$(MAKE) -C obj_decoder -f Vternary_decoder.mk
-	# Build top model with TILE_SIZE parameter and tracing
+	# Build tmatmul model with TILE_SIZE parameter and tracing
 	verilator -I../hdl -Wall -Wno-fatal --trace --cc \
 		-GTILE_SIZE=$(TILE_SIZE) \
-		../hdl/top.sv ../hdl/ternary_decoder.sv ../hdl/tmul.sv \
-		../hdl/reduction_tree.sv ../hdl/reduction_stage.sv ../hdl/adder_stage.sv \
-		../hdl/weight_array.v \
-		--Mdir obj_top
-	$(MAKE) -C obj_top -f Vtop.mk
+		../hdl/tmatmul.sv ../hdl/tdot.sv ../hdl/ternary_decoder.sv \
+		../hdl/tmul.sv ../hdl/reduction_tree.sv ../hdl/reduction_stage.sv \
+		../hdl/adder_stage.sv \
+		--Mdir obj_tmatmul
+	$(MAKE) -C obj_tmatmul -f Vtmatmul.mk
 	# Link testbench with TILE_SIZE define and VCD support
-	g++ -std=c++17 -I obj_decoder -I obj_top \
+	g++ -std=c++17 -I obj_decoder -I obj_tmatmul \
 		-I$$(verilator --getenv VERILATOR_ROOT)/include \
 		-DTILE_SIZE=$(TILE_SIZE) \
 		testbench.cpp \
 		obj_decoder/Vternary_decoder__ALL.a \
-		obj_top/Vtop__ALL.a \
+		obj_tmatmul/Vtmatmul__ALL.a \
 		$$(verilator --getenv VERILATOR_ROOT)/include/verilated.cpp \
 		$$(verilator --getenv VERILATOR_ROOT)/include/verilated_threads.cpp \
 		$$(verilator --getenv VERILATOR_ROOT)/include/verilated_vcd_c.cpp \
@@ -104,5 +119,6 @@ matvec_sw:
 	./matvec_sw
 
 clean:
-	rm -rf obj_dir obj_decoder obj_fifo obj_in_skid obj_out_skid obj_top obj_top_test \
-		testbench matvec_sw test_skid_buffer_exe test_top_exe
+	rm -rf obj_dir obj_decoder obj_fifo obj_in_skid obj_out_skid obj_top obj_top_system \
+		obj_top_test obj_tmatmul testbench matvec_sw test_skid_buffer_exe test_top_exe \
+		test_top_system_exe
