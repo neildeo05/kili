@@ -1,5 +1,7 @@
 # Kili
 
+Look at `qemu-device/README.md` for general device+driver description.
+
 Ternary TMatmul accelerator with a QEMU PCIe device and Linux driver.
 The example runs **TMatmul → ReLU → TMatmul**. The driver supports 16 outstanding requests.
 
