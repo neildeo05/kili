@@ -1,39 +1,73 @@
-# Kili (temporary name) ternary AI accelerator
+# Kili
 
-# Some instructions
-```
-GEMV:
-Instruction[31:27] = rs3 (burst length)
-Instruction[26:25] = 2'b0
-Instruction[24:20] = rs2 (weight addr)
-Instruction[19:15] = rs1 (acivation addr)
-Instruction[14:12] = 3'b0
-Instruction[11:7] = rd (result buffer addr)
-Instruction[6:0] = 0b0101011 (opcode)
-```
-### Skid Buffers
-There are two types of skid buffers in use in this design, the in_chan skid buffer and the out_chan skid buffer. The in_chan buffer is used specifically for channels where the master/slave is getting data from the other one, like the read data channel from the perspective of the master. It specifically does not have buffered outputs -> this means that the input will appear on the output in the same clock cycle. This means that it should not be used as a flip flop, but can be used as a buffer in between two flip-flops, say between the slave output and the master input. The out_chan buffer is used specifically for channels where the master/slave is giving data to the other one, like the read address channel. The outputs appear on the next rising edge after the input, which means they act as a buffer/pipeline stage. The output from the master can go into this buffer, and can then feed into the slave, mitigating large slack issues with a pure combinational path
+Ternary TMatmul accelerator with a QEMU PCIe device and Linux driver.
+The example runs **TMatmul → ReLU → TMatmul**. The driver supports 16 outstanding requests.
 
+These steps use an **Apple Silicon Mac** and an existing **Ubuntu ARM64 VM**.
+The VM disk and firmware are not included in this repository.
 
-## Tensor Unit:
-The tensor unit computes a GEMV with inputs of a 8x8 weight tile and a 1x8 activation input
+1. **On the Mac: clone and build QEMU with Kili.**
 
-### Latencies:
+   ```sh
+   git clone https://github.com/neildeo05/kili.git
+   cd kili
+   brew install ninja meson pkg-config glib pixman dtc
+   git clone https://gitlab.com/qemu-project/qemu.git qemu
+   git -C qemu checkout efa3b9d5ac8024078225e1ab434411fdfe53b457
+   python3 qemu-device/install.py qemu
+   mkdir -p qemu/build
+   cd qemu/build
+   ../configure --target-list=aarch64-softmmu --disable-docs --disable-rust --enable-cocoa \
+       --extra-cflags="-I$(brew --prefix dtc)/include" \
+       --extra-ldflags="-L$(brew --prefix dtc)/lib"
+   ninja -j8
+   cd ../..
+   ```
 
-Cycles before operation starts:
-- Burst Transfer Core Input to Memory Input: 2 cycles
-- Memory Input to Weight FIFO: 1 cycle
-- Weight FIFO input to Weight FIFO output (best case): 2 cycles (note that in-flight data due to the burst request will only appear one cycle after the previous data being processed)
-- Tensor Core Unit: 5 cycles between input and output
+2. **Shut down the old VM.** Put your existing `ubuntu-arm64.qcow2`,
+   `edk2-aarch64-code.fd`, and writable `edk2-arm-vars.fd` in a `vm/` directory
+   inside this checkout. From the checkout root, start the VM:
 
-Example Latencies (64x64) matrix with (8x8) tiles
+   ```sh
+   ./qemu/build/qemu-system-aarch64 \
+       -machine virt,gic-version=3 -accel hvf -cpu host -smp 4 -m 4G \
+       -drive if=pflash,format=raw,unit=0,file=vm/edk2-aarch64-code.fd,readonly=on \
+       -drive if=pflash,format=raw,unit=1,file=vm/edk2-arm-vars.fd \
+       -drive if=none,file=vm/ubuntu-arm64.qcow2,format=qcow2,id=os \
+       -device virtio-blk-pci,drive=os \
+       -device virtio-net-pci,netdev=net0 \
+       -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 \
+       -device virtio-gpu-pci -device qemu-xhci -device usb-kbd -device usb-tablet \
+       -device pcie-root-port,id=kili_port,chassis=1 \
+       -device kili,bus=kili_port -display cocoa
+   ```
 
+3. **In another Mac terminal:** from the checkout root, copy the driver sources
+   and connect. Replace `user` with your VM username if different; SSH must be
+   enabled in the guest.
 
-Total 10 cycles between input and output, which is kinda a lot (but it is hyper pipelined so the clock frequency can be higher)
+   ```sh
+   ssh -p 2222 user@localhost 'mkdir -p ~/kili-device'
+   scp -P 2222 -r qemu-device/driver qemu-device/tests qemu-device/kili-*.h \
+       qemu-device/kili-core.c user@localhost:~/kili-device/
+   ssh -p 2222 user@localhost
+   ```
 
-### Interfaces/Handshakes:
-- Input Burst -> Burst FIFO: if Burst FIFO isn't full, it will always accept
-- Memory Request -> Weight FIFO: If weight FIFO isn't full it will always accept
-- Weight FIFO -> Ternary Core: Since the ternary core doesn't stall for anything, it will ALWAYS accept
-- Activation Input -> Activation Buffer: If the activation input isn't buffered (hasn't been operated on) or isn't activating (currently being operate on) it will accept a new input to the activation buffer
-- Activation Chunk -> Tensor Core: When we get a valid activation input and we aren't using the current value in the activation buffer, we overwrite it with the activation value. When the weight FIFO starts sending values to the tensor core, we designate the activation buffer to be "activating", and we start sending chunks to the tensor core. When the weight FIFO is done sending tiles to the tensor core, we designate the buffer "empty", and it is ready to accept a new input
+4. **Inside Ubuntu: build, load, and run.**
+
+   ```sh
+   sudo apt-get update
+   sudo apt-get install -y build-essential linux-headers-$(uname -r) pciutils
+   cd ~/kili-device/driver
+   make -j4
+   lspci -nn -d 1234:1111
+   sudo insmod ./kili_drv.ko
+   sudo ./kili_test
+   sudo ./kili_queue_test
+   ```
+
+   Expect `PASS` messages for the network and the 32-caller queue test.
+   Repeat `insmod` after each guest boot. Before loading a rebuilt module, run
+   `sudo rmmod kili_drv`. Run the queue test when the device is otherwise idle.
+
+[Device ABI](qemu-device/README.md) · [Driver details](qemu-device/driver/README.md) · [HDL notes](hdl/README.md)

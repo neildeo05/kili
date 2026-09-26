@@ -1,3 +1,5 @@
 *.png
 .obsidian/
 AXI\ Notes.md
+/qemu/
+/vm/
